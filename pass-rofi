@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+get_field() {
+	awk -v field="$1" -F: '$1==field{gsub(/^[[:space:]]*|[[:space:]]*$/,"",$2);print $2}'
+}
+
+autotype() {
+	local xkbmap layout variant
+	xkbmap="$(setxkbmap -print -verbose 10)"
+	layout="$(get_field 'layout' <<< "$xkbmap")"
+	variant="$(get_field 'variant' <<< "$xkbmap")"
+	setxkbmap "$layout" "$variant"
+	
+	local instructions
+	instructions="$(pass show "$1" | get_field 'autotype')"
+	IFS=' ' read -ra instructions <<< "${instructions:-:user Tab :pass}"
+	for instr in "${instructions[@]}"; do
+		if [ "$instr" == ':pass' ]; then
+			xdotool type "$(pass show "$1" | head -n1)"
+		elif [[ "$instr" =~ ^:.* ]]; then
+			xdotool type "$(pass show "$1" | get_field "${instr#:}")"
+		else
+			xdotool key "$instr"
+		fi
+	done
+}
+
+
+PREFIX="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+
+readarray -d '' passwords < <(find "$PREFIX" -type f -name '*.gpg' -print0)
+passwords=( "${passwords[@]#$PREFIX/}" )
+passwords=( "${passwords[@]%.gpg}" )
+
+selected="$(printf '%s\n' "${passwords[@]}" | rofi -dmenu -p 'pass' -mesg $'Enter: Copy password\tAlt+1: Autotype')"
+action=$?
+if [ -n "$selected" ]; then
+	case $action in
+		0) pass show -c "$selected";;
+		10) autotype "$selected";;
+		*) exit 1;;
+	esac
+fi
