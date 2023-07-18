@@ -5,15 +5,13 @@ get_field() {
 }
 
 autotype() {
-	local xkbmap layout variant
-	xkbmap="$(setxkbmap -print -verbose 10)"
-	layout="$(get_field 'layout' <<< "$xkbmap")"
-	variant="$(get_field 'variant' <<< "$xkbmap")"
-	setxkbmap "$layout" "$variant"
+	local xkbmap="$(setxkbmap -print -verbose 10)"
+	local layout="$(get_field 'layout' <<< "$xkbmap")"
+	local variant="$(get_field 'variant' <<< "$xkbmap")"
+	setxkbmap "$layout" "$variant" # NOTE: Fix for xdotool
 	
-	local instructions
-	instructions="$(pass show "$1" | get_field 'autotype')"
-	IFS=' ' read -ra instructions <<< "${instructions:-:user Tab :pass}"
+	local instructions="$(pass show "$1" | get_field 'autotype')"
+	readarray -d ' ' instructions <<< "${instructions:-:user Tab :pass}"
 	for instr in "${instructions[@]}"; do
 		if [ "$instr" == ':pass' ]; then
 			xdotool type "$(pass show "$1" | head -n1)"
@@ -27,17 +25,21 @@ autotype() {
 
 
 PREFIX="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+if [ ! -d "$PREFIX" ]; then
+	rofi -markup -e "$(printf '<span size="larger" foreground="red"><tt>%s</tt> does not exist!</span>\nYou may need to initialize the password store with <tt>pass init</tt>. See <u>pass(1)</u> for usage.\nIf your store is elsewhere, you need to set the <tt>PASSWORD_STORE_DIR</tt> environment variable.' "$PREFIX")"
+	exit
+fi
 
 readarray -d '' passwords < <(find "$PREFIX" -type f -name '*.gpg' -print0)
 passwords=( "${passwords[@]#$PREFIX/}" )
 passwords=( "${passwords[@]%.gpg}" )
 
-selected="$(printf '%s\n' "${passwords[@]}" | rofi -dmenu -p 'pass' -mesg $'Enter: Copy password\tAlt+1: Autotype')"
+selected="$(printf '%s' "${passwords[@]}" | rofi -dmenu -p 'pass' -mesg $'↵  Copy password\t\t⎇1 Autotype\n⎇* Edit')"
 action=$?
-if [ -n "$selected" ]; then
-	case $action in
-		0) pass show -c "$selected";;
-		10) autotype "$selected";;
-		*) exit 1;;
-	esac
-fi
+[ -n "$selected" ] || exit
+case $action in
+	0) pass show -c "$selected";;
+	10) autotype "$selected";;
+	27) pass edit "$selected";;
+	*) exit 1;;
+esac
